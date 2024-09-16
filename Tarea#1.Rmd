@@ -1,0 +1,67 @@
+---
+title: "1clas"
+author: "Dario Quishpe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+EJERCICIO 1 -01/05/2024
+
+```{r}
+library(tidyverse)
+```
+
+comportamiento posterior a entregado el credito
+# 1 Identificar clientes que tienen mas de una operacion:Cuantos clientes tienen 1 credito , 2 credito ,3 creditos y asi 
+revisar el numero de operacion 
+```{r}
+#Tabla1
+OperacionesTabla1<-read.csv(file = "EstructuraVariables/EstructuraVariables/OperacionesTabla1.txt",sep = "\t")
+Tabla1<-OperacionesTabla1 |> select(IDENTIFICACION_SCORE,SaldoDeudaM1=SALDO_DEUDA_OP_M1) |> mutate(CATEGORIA="OP")
+```
+
+
+
+#2 Tagetas tabla 1
+
+
+```{r}
+TargetasTabla1<-read.csv(file="EstructuraVariables/EstructuraVariables/TarjetasTabla1.txt",sep = "\t")
+
+Tabla2<-TargetasTabla1 |> select(IDENTIFICACION_SCORE,SaldoDeudaM1=SALDO_DEUDA_TC_M1) |> mutate(CATEGORIA="TS")
+```
+
+
+
+
+
+
+```{r}
+TablaConsolidada<-rbind(Tabla1,Tabla2)
+
+ResultadoM1_1<-TablaConsolidada |> group_by(IDENTIFICACION_SCORE) |> summarise(NumregistrosM1=n(),SaldoTOTDeudaM1=sum(SaldoDeudaM1),NumOPM1=sum(CATEGORIA=="OP"),NumTCM1=sum(CATEGORIA=="TS"),SaldoDeudaOPM1=sum(ifelse(CATEGORIA=="OP",SaldoDeudaM1,0)),SaldoDeudaTCM1=sum(ifelse(CATEGORIA=="TS",SaldoDeudaM1,0))) |> arrange(NumregistrosM1) 
+
+ResultadoM1_1
+
+```
+
+```{r}
+ResultadoM1_2<-ResultadoM1_1 |> group_by(NumregistrosM1) |> 
+              summarise(Numeroregistro=n(),
+                        SaldoToT=sum(SaldoTOTDeudaM1),
+                        NumOP=sum(NumOPM1),
+                        NumTC=sum(NumTCM1),
+                        SaldoOP=sum(SaldoDeudaOPM1),
+                        SaldoTC=sum(SaldoDeudaTCM1))
+
+ResultadoM1_2
+```
+
+```{r}
+Paso2<-TargetasTabla1 |> group_by(IDENTIFICACION_SCORE) |> summarise(Numero_Registros=n(),SaldoDeudaM1=sum(SALDO_DEUDA_TC_M1)) |> mutate(CATEGORIA="TS")
+```
+```{r}
+Paso1<-OperacionesTabla1 |> group_by(IDENTIFICACION_SCORE) |>                  summarise(Numero_Registros=n(),SaldoDeudaM1=sum(SALDO_DEUDA_OP_M1)) |>
+          mutate(CATEGORIA="OP")
+```
+
