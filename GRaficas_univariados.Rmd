@@ -1,0 +1,59 @@
+---
+title: "Untitled"
+author: "Dario Quishpe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+for(i in c(1:length(res))){
+  buenos <- ecdf(mod %>% dplyr::filter(ModVal == 0 & VarDep == 0) %>% pull(res[i]))
+  malos <- ecdf(mod %>% dplyr::filter(ModVal == 0 & VarDep == 1) %>% pull(res[i]))
+  
+  grid_var <- unique(mod %>% dplyr::filter(ModVal == 0) %>% pull(res[i]))
+  prob_acumulada_ecdf_b <- buenos(v = grid_var)
+  prob_acumulada_ecdf_m <- malos(v = grid_var)
+  
+  df_ecdf <- data.frame(var = grid_var, buenos = prob_acumulada_ecdf_b, malos = prob_acumulada_ecdf_m) %>%
+    pivot_longer(cols = c(buenos, malos), names_to = "Marca", values_to = "ecdf")
+  
+  grafico_ecdf <- ggplot(data = df_ecdf, aes(x = var, y = ecdf, color = Marca)) +
+    geom_line(size = 1) +
+    scale_color_manual(values = c("gray60", "orangered1")) +
+    labs(color = "Marca", y = "Probabilidad acumulada", x = res[i]) +
+    theme_bw() +
+    theme(legend.position = "bottom", plot.title = element_text(size = 12))
+  
+  # Imprimir el gráfico dentro del bucle
+  #print(grafico_ecdf)
+  
+  abs_dif <-  abs(prob_acumulada_ecdf_b - prob_acumulada_ecdf_m)
+  distancia_ks <- max(abs_dif)
+  paste("Distancia Kolmogorov–Smirnov:", distancia_ks)
+  indice_ks <- which.max(abs_dif)
+  
+  # Añadir el segmento al gráfico
+  grafico_ecdf<-grafico_ecdf +
+    geom_segment(aes(x = grid_var[indice_ks], xend = grid_var[indice_ks],
+                     y = prob_acumulada_ecdf_b[indice_ks], yend = prob_acumulada_ecdf_m[indice_ks]),
+                 arrow = arrow(ends = "both", length = unit(0.2,"cm")), color = "black")
+  print(grafico_ecdf)
+
+}
+```
+```{r}
+# Iterar sobre el vector res y generar gráficos de densidad
+plots <- lapply(res, function(var) {
+  ggplot(mod, aes_string(x = var)) +
+    geom_density(aes_string(group = "as.factor(VarDep)", fill = "as.factor(VarDep)"), alpha = 0.5) +
+    labs(x = var)  # Añadir etiqueta al eje x con el nombre de la variable
+})
+
+# Mostrar los gráficos
+plots
+```
+
