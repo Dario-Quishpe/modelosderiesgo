@@ -1,0 +1,342 @@
+---
+title: "Predicción de Pedidos y Ventas - Assessment Técnico"
+author: 
+  - Dario Quishpe
+date: "`r Sys.Date()`"
+output: 
+  rmdformats::readthedown
+---
+
+<div><img src='data.table.jpg' width="120" align="right"></div>
+
+```{r message=FALSE, warning=FALSE, collapse=TRUE, include=FALSE}
+suppressMessages(library(readxl))
+suppressMessages(library(ranger))
+suppressMessages(library(h2o))
+suppressMessages(library(data.table))
+suppressMessages(library(ROSE))
+suppressMessages(library(xlsx))
+suppressMessages(library(data.table))
+suppressMessages(library(ggplot2))
+```
+
+
+# Pregunta 1
+  
+## Introducción
+  
+  La evaluación consta de 2 preguntas en las cuales se tiene que:
+  
+- **Objetivo**: Predecir los pedidos del 04 de septiembre de 2024 y las ventas de los siguientes 4 meses.
+
+- **Datos proporcionados**: 
+
+  - Ventas en dólares y kilogramos de clientes (corte 03/09/2024).
+  - Base histórica de clientes.
+  - Rutero de clientes.
+  - Ventas históricas (2022 - agosto 2024).
+
+## Desarrollo
+
+  **Predecir que Items pedirán los clientes el miércoles 04 de septiembre de 2024**
+  **Datos proporcionados**:
+  
+    - Ventas en dólares y kilogramos de clientes (corte 03/09/2024).
+    
+    - Base histórica de clientes.
+    
+    - Rutero de clientes.
+    
+  Donde sus dimenciones son:
+    
+```{r message=FALSE, warning=FALSE, include=FALSE}
+dir<-getwd()
+dir.carpeta<-paste0(dir,"/Bases ejercicio 1 y 2")
+#list.files(path = dir.carpeta)
+#Base Usd y Kilogramos.xlsx
+Base_U_K<-read_excel(path = paste0(dir.carpeta,"/Base Usd y Kilogramos.xlsx"))
+Base_U_K<-as.data.table(Base_U_K)
+#colSums(is.na(Base_U_K))#existen valores faltantes
+#Base_U_K[is.na(KG)]
+Base_U_K[is.na(KG), `:=`(KG = 0, USD = 0)] #reemplazamos con 0's
+Base_U_K <- Base_U_K[FechaFechaAño != "FechaFechaAño"] #eliminando resgitros erroneos
+#str(Base_U_K)
+#"Base03092024.xlsx"
+Base03092024<-read_excel(path = paste0(dir.carpeta,"/Base03092024.xlsx"))
+Base03092024<-as.data.table(Base03092024)
+#colSums(is.na(Base03092024))
+Base03092024[is.na(FechaFechaAño),]# existen dos columnas vacias
+Base03092024<-na.omit(Base03092024)
+Base03092024 <- Base03092024[FechaFechaAño != "FechaFechaAño"] #eliminando resgitros erroneos
+
+#str(Base03092024)
+#"RuteroPrueba.xlsx"
+RuteroPrueba<-read_excel(path = paste0(dir.carpeta,"/RuteroPrueba.xlsx"))
+RuteroPrueba<-as.data.table(RuteroPrueba)
+#colSums(is.na(RuteroPrueba))
+#str(RuteroPrueba)
+
+```
+```{r echo=FALSE}
+cat(paste("Base de datos:", "Base_U_K", 
+              "Registros:", dim(Base_U_K)[1], 
+              "Columnas:", dim(Base_U_K)[2]), "\n")
+cat(paste("Base de datos:", "Base03092024", 
+              "Registros:", dim(Base03092024)[1], 
+              "Columnas:", dim(Base03092024)[2]), "\n")
+cat(paste("Base de datos:", "RuteroPrueba", 
+              "Registros:", dim(RuteroPrueba)[1], 
+              "Columnas:", dim(RuteroPrueba)[2]), "\n")
+```
+
+## Metodología
+- **Herramientas utilizadas**:  R
+- **Pasos del análisis**:
+
+  - Limpieza, exploración y estructuración de datos.
+  - Creación del modelo predictivo.
+  - Predicción y visualización de resultados.
+
+### Limpieza, exploración y estructuración de datos.
+  
+  Por qué utilizar **data.table** para manejar grandes volúmenes de datos?
+
+  <div><img src='datavstidy.png' width="600" align="center"></div>
+
+#### Variables seleccionadas
+  Tras haber realizado la depuración de la información y al haber extraído información relevante
+  de las bases historicas y de rutero, se consolida en la base a corte 03/09/2024, con dimensión: **53354** registros y 
+  **21** columnas, y se seleccionan las siguientes variables para la construcción del modelo:
+  
+  - Cliente
+  - FechaFechaDia
+  - FechaFechaTrimestre
+  - FechaFechaMes
+  - ItemNegocioLineaNegocio_mas_frec
+  - TipoPlataformaTipoPlataformaTipoPlataforma_mas_frec
+  - ClienteRegionalGeograficaRegion_mas_frec
+  - ClienteCanalCanal
+  - ClienteCanalSubcanal
+  - KG
+  - USD
+  - frecuencia rutero
+  - ItemNegocioFamilia_mas_frec
+  - ItemNegocioFamilia_mas_actual
+  - ItemItem_PadreCódigo_Padre_mas_frec
+  - **ItemItem_PadreCódigo_Padre_mas_actual** <- variable objetivo
+
+**OBSERVEMOS QUE**
+
+```{r echo=FALSE, warning=FALSE}
+load(file = "data_consolidada.Rdata")
+## ANALSIS DE LA VARIABLE DEPENDIENTE = ItemNegocioFamilia --------------
+data_consolidada[, .N, by = ItemNegocioFamilia_mas_actual][
+  , porcentaje :=round( N / sum(N) * 100,2)][
+  order(N, decreasing = TRUE)
+]
+```
+
+Se nota un desvalance entre las clases que possee la variable objetivo por lo cual se procede a balancear parcialmente la base. Lo cual da como resultado: 
+
+```{r echo=FALSE, warning=FALSE}
+load(file = "data_modelamiento.Rdata")
+data_modelamiento[, .N, by = ItemNegocioFamilia_mas_actual][
+  , porcentaje :=round( N / sum(N) * 100,2)][
+  order(N, decreasing = TRUE)
+]
+```
+
+donde se han incrementado el número de registros a **600900** con el fin de obtener las caracteristicas o patrones 
+que tienen el resto de categorias.
+
+### Modelamiento
+  Es importante notar que la variable objetivo en este caso tiene 19 posibles valores, por lo cual se utilizara un modelo de random forest.
+  
+<div><img src='randomforest.jpg' width="600" align="center"></div>
+
+Haciendo uso de la metodologia: **Modelamiento** partición del 60% y **Evaluacion** del 40%.
+
+**HERRAMIENTA H2O**
+
+<div><img src='h2o.jpg' width="600" align="center"></div>
+
+### Resultados obtenidos
+
+```{r echo=FALSE}
+data<-read_excel(path = "Pregunta1.xlsx")
+setorderv(data, "prob_final", order = -1)
+data
+```
+```{r echo=FALSE}
+data<-as.data.table(data)
+data[,.N,by = prediccion][order(N,decreasing = TRUE)]
+```
+
+```{r echo=FALSE}
+data_resumen <- data[, .N, by = prediccion][order(N, decreasing = TRUE)]
+ggplot(data_resumen, aes(x = reorder(prediccion, -N), y = N)) +
+  geom_bar(stat = "identity", fill = "steelblue") +
+  labs(title = "Distribución de Predicciones",
+       x = "Predicción",
+       y = "Número de Ocurrencias") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1, size = 7))  # Ajustar el tamaño del texto del eje x
+```
+
+
+# Pregunta 2 
+
+## Desarrollo
+
+  **Predicción de ventas para los meses septiembre, octubre, noviembre, diciembre 2024 de 3 02 grupos de productos**
+  - **Datos proporcionados**: 
+  
+    - Ventas históricas (2022 – ago 2024).
+    
+  Dicho archivo cuenta con 3 hojas 
+  - Carnes
+  - Sopas
+  - Pollos
+  
+  cada una con tres series temporales de *33* datos cada una
+  
+## Metodología
+- **Pasos del análisis**:
+  - Limpieza, exploración y estructuración de datos.
+  - Creación del modelo predictivo.
+  - Predicción y visualización de resultados.
+  - **Herramientas utilizadas**:  
+  
+  <div><img src='Rstudio-Logo-Flat.jpg' width="600" align="center"></div>
+
+### Creación del modelo predictivo.
+  Para modelar las series temporales estructuradas mediante tidyverse y mostrar la variedad de opciones
+  para poder obtener pronosticos confiables se utilizarán:
+  
+  - Para carnes-> modelos ARIMA
+  - Para sopas-> modelos ETS
+  - Para pollos-> modelos de redes neuronales.
+  
+  **Se añade una estructura de series de tiempo jerarquica al final**
+  
+### Predicción y visualización de resultados.
+
+**CARNE**  
+
+Diagramas de correlación
+
+<div><img src='acf_carne.jpg' width="600" align="center"></div>
+
+
+
+
+```{r echo=FALSE}
+load(file = "La_Favorita_carne_prediccion.Rdata")
+load(file = "Almacenes_Pronaca_carne_prediccion.Rdata")
+load(file = "Mi_comisariato_carne_prediccion.Rdata")
+load(file = "plot_arimaLFC_carne.Rdata")
+load( file = "plot_arimaMC_carne.Rdata")
+load(file = "plot_arimaAP_carne.Rdata")
+
+plot_arimaLFC_carne
+La_Favorita_carne_prediccion
+```
+
+```{r echo=FALSE}
+plot_arimaMC_carne
+Mi_comisariato_carne_prediccion
+
+```
+
+```{r echo=FALSE}
+plot_arimaAP_carne
+Almacenes_Pronaca_carne_prediccion
+```
+
+<div><img src='Carnes.jpg' width="600" align="center"></div>
+  
+**SOPAS**
+
+
+<div><img src='acf_carne.jpg' width="600" align="center"></div>
+
+```{r echo=FALSE}
+load(file = "La_Favorita_sopas_prediccion.Rdata")
+load(file = "Almacenes_Pronaca_sopas_prediccion.Rdata")
+load(file = "Mi_comisariato_sopas_prediccion.Rdata")
+load(file = "plot_etsLFC_sopas.Rdata")
+load( file = "plot_etsMC_sopas.Rdata")
+load(file = "plot_etsAP_sopas.Rdata")
+
+plot_etsLFC_sopas
+La_Favorita_sopas_prediccion
+```
+
+
+```{r echo=FALSE}
+plot_etsMC_sopas
+Mi_comisariato_sopas_prediccion
+```
+```{r echo=FALSE}
+plot_etsAP_sopas
+Almacenes_Pronaca_sopas_prediccion
+```
+
+
+<div><img src='sopas.jpg' width="600" align="center"></div>
+
+
+
+**POLLOS**
+
+```{r echo=FALSE, warning=FALSE}
+load(file = "La_Favorita_pollos_prediccion.Rdata")
+load(file = "Almacenes_Pronaca_pollos_prediccion.Rdata")
+load(file = "Mi_comisariato_pollos_prediccion.Rdata")
+load(file = "plot_NNETARLFC_sopas.Rdata")
+load(file = "plot_NNETARMC_sopas.Rdata")
+load(file = "plot_NNETARAP_sopas.Rdata")
+plot_NNETAR
+La_Favorita_pollos_prediccion
+```
+
+```{r echo=FALSE, warning=FALSE}
+plot_NNETAR_box
+Mi_comisariato_pollos_prediccion
+```
+
+
+```{r echo=FALSE, warning=FALSE}
+plot_NNETAR_3
+Almacenes_Pronaca_pollos_prediccion
+```
+
+<div><img src='pollos.jpg' width="600" align="center"></div>
+
+**Jerarquico**
+
+TOTAL DE VENTAS
+
+<div><img src='jerarquico.jpg' width="600" align="center"></div>
+
+```{r echo=FALSE}
+load(file = "predicciones_nivel_0.Rdata")
+load( file = "predicciones_nivel_1.Rdata")
+predicciones_nivel_0
+```
+TOTAL DE VENTAS POR GRUPO
+
+```{r echo=FALSE}
+predicciones_nivel_1
+```
+
+
+
+### Conclusiones
+
+  - El total de ventas tiene una tendencia creciente. Dar  atención prioritaria a Mi Comisariato (SOPAS y POLLOS).
+    
+    **Observar las tablas en el dcumento de desarrollo**
+
+
+
