@@ -1,0 +1,64 @@
+---
+title: "PRACTICA ANALISIS DE DATOS"
+author: "Dario Quishpe"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# PRACTICA : ANALISIS DE DATOS CON data.table
+
+```{r}
+#install.packages("data.table")
+library(data.table)
+library(readxl)
+library(lubridate)
+```
+```{r}
+options(scipen=999)
+data<-read_excel(path = "documentos_prueba/DATOS INDICADORES DE GESTION AGOSTO.xlsx",
+           sheet = 3)
+data<-as.data.table(data)
+data[, `:=`(`N.- DE OPERACIÓN` = as.character(`N.- DE OPERACIÓN`),
+            CEDULA = as.character(CEDULA))]
+data[,`:=`(`FECHA DE INGRESOS`=ymd(`FECHA DE INGRESOS`),
+           `HORA DE ENTRADA`=ymd_hms(`HORA DE ENTRADA`),
+           `HORA DE SALIDA`=ymd_hms(`HORA DE SALIDA`))]
+
+# Función para obtener el día de la semana con lunes como 1 y domingo como 7
+day_of_week <- function(date) {
+  wday(date, week_start = 1)
+}
+
+# Función para calcular el tiempo excluyendo fines de semana
+calcular_tiempo_excluyendo_fines_semana <- function(hora_entrada, hora_salida) {
+  # Crear secuencia de horas desde la entrada hasta la salida
+  seq_horas <- seq(from = hora_entrada, to = hora_salida, by = "hour")
+  
+  # Excluir las horas que son sábado o domingo
+  horas_validas <- seq_horas[!day_of_week(seq_horas) %in% c(6, 7)] # 6 es sábado, 7 es domingo
+  
+  # Calcular la diferencia en horas
+  total_horas <- length(horas_validas)
+  
+  # Convertir a horas y minutos
+  horas <- floor(total_horas)
+  minutos <- round((total_horas - horas) * 60)
+  
+  # Formatear como HH:MM
+  sprintf("%02d:%02d", horas, minutos)
+}
+
+# Aplicar la función a cada fila
+data[, `Tiempo_Entre` := calcular_tiempo_excluyendo_fines_semana(`HORA DE ENTRADA`, `HORA DE SALIDA`)]
+
+data[1:10,.(CEDULA,`HORA DE ENTRADA`,`HORA DE SALIDA`,TIEMPO_EN_FABRICA)]
+class(data)
+str(data)
+summary(data)
+```
+
+

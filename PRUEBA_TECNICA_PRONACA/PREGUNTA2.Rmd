@@ -1,0 +1,469 @@
+---
+title: "PREGUNTA2"
+author: "Dario Quishpe"
+date: "`r Sys.Date()`"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+# Librerias que se utilizan
+
+```{r include=FALSE}
+#install.packages("hts")
+#install.packages(c("readxl","forecast","tseries","tsibble","xlsx","tidyverse","lubridate")) 
+suppressMessages(library(readxl))
+suppressMessages(library(forecast))
+suppressMessages(library(tseries))
+suppressMessages(library(tsibble))
+suppressMessages(library(xlsx))
+suppressMessages(library(tidyverse))
+suppressMessages(library(lubridate))
+suppressMessages(library(hts))
+suppressMessages(library(fpp3))
+#suppressMessages(library(forecast))
+suppressMessages(library(fpp2))
+suppressMessages(library(TSA))
+suppressMessages(library(gridExtra))
+
+```
+## Carga y tratamiento de datos
+
+```{r include=FALSE}
+dir<-getwd()
+dir.carpeta<-paste0(dir,"/Bases ejercicio 1 y 2")
+list.files(path = dir.carpeta)
+
+info_carne<-read_excel(path = paste0(dir.carpeta,"/Ventas históricas ejercicio 2.xlsx"),sheet = 1,skip =2)
+info_carne<-as.data.frame(t(info_carne))
+colnames(info_carne) <- info_carne[1, ]
+info_carne<- info_carne[-1, ]
+info_carne <- info_carne %>%
+  mutate(Tiempo = rownames(info_carne))
+
+info_sopas<-read_excel(path = paste0(dir.carpeta,"/Ventas históricas ejercicio 2.xlsx"),sheet = 2)
+info_sopas<-as.data.frame(t(info_sopas))
+colnames(info_sopas) <- info_sopas[1, ]
+info_sopas<- info_sopas[-1, ]
+info_sopas <- info_sopas %>%
+  mutate(Tiempo = rownames(info_sopas))
+
+
+info_pollos<-read_excel(path = paste0(dir.carpeta,"/Ventas históricas ejercicio 2.xlsx"),sheet = 3)
+info_pollos<-as.data.frame(t(info_pollos))
+colnames(info_pollos) <- info_pollos[1, ]
+info_pollos<- info_pollos[-1, ]
+info_pollos <- info_pollos %>%
+  mutate(Tiempo = rownames(info_pollos))
+
+info_sopas
+info_carne
+info_pollos
+```
+## Construccion de series temporales (Carne)
+```{r echo=FALSE, warning=FALSE}
+#hoja1
+meses <- c("Ene" = "01", "Feb" = "02", "Mar" = "03", "Abr" = "04", 
+           "May" = "05", "Jun" = "06", "Jul" = "07", "Ago" = "08", 
+           "Sep" = "09", "Oct" = "10", "Nov" = "11", "Dic" = "12")
+info_carne <- info_carne |> mutate(Tiempo = str_replace_all(Tiempo, meses)) |> 
+              mutate(Tiempo = paste0(Tiempo, "/01"),
+              Tiempo = as.Date(Tiempo)) |> mutate(Tiempo = ceiling_date(Tiempo, "month") - days(1)) |> 
+              as_tsibble(index = Tiempo) 
+
+info_carne<-info_carne  |> mutate(`La favorita`=as.numeric(`La favorita`),
+                                  `Mi comisariato`=as.numeric(`Mi comisariato`),
+                                  `Almacenes Pronaca`=as.numeric(`Almacenes Pronaca`))
+
+
+La_Favorita_carne <- ts(info_carne$`La favorita`, start = c(year(min(info_carne$Tiempo)), month(min(info_carne$Tiempo))), frequency = 12)  # Frecuencia para datos 
+#min(La_Favorita_carne)
+#La_Favorita_carne
+Mi_comisariato_carne <- ts(info_carne$`Mi comisariato`, start = c(year(min(info_carne$Tiempo)), month(min(info_carne$Tiempo))), frequency = 12)  # Frecuencia para datos 
+Almacenes_Pronaca_carne <- ts(info_carne$`Almacenes Pronaca`, start = c(year(min(info_carne$Tiempo)), month(min(info_carne$Tiempo))), frequency = 12)  # Frecuencia para datos 
+
+autoplot(La_Favorita_carne)
+autoplot(Mi_comisariato_carne)
+autoplot(Almacenes_Pronaca_carne)
+
+
+```
+
+
+Es evidente que el mes de septiembre es un dato atípico, pues no termina. Por ello se procede a retirarlo.
+
+```{r echo=FALSE}
+La_Favorita_carne <- ts(info_carne$`La favorita`[-33], start = c(year(min(info_carne$Tiempo)), month(min(info_carne$Tiempo))), frequency = 12)  # Frecuencia para datos 
+#min(La_Favorita_carne)
+#La_Favorita_carne
+Mi_comisariato_carne <- ts(info_carne$`Mi comisariato`[-33], start = c(year(min(info_carne$Tiempo)), month(min(info_carne$Tiempo))), frequency = 12)  # Frecuencia para datos 
+Almacenes_Pronaca_carne <- ts(info_carne$`Almacenes Pronaca`[-33], start = c(year(min(info_carne$Tiempo)), month(min(info_carne$Tiempo))), frequency = 12)
+
+autoplot(La_Favorita_carne)
+autoplot(Mi_comisariato_carne)
+autoplot(Almacenes_Pronaca_carne)
+
+```
+
+Se observar que existe patrones bien marcados en la tendencia de las series de tiempo de Mi Comisariato y el almacen de PRONACA. Por otro lado parece ser que la serie temporal de La Favorita corresponde a un ruido blanco.  Se presenta los siguientes test para 
+confirmar el hecho de que no son ruidos blancos.
+
+```{r}
+
+library(ggplot2)
+#install.packages("ggfortify")
+library(ggfortify)
+
+descom<-decompose(Almacenes_Pronaca_carne)
+autoplot(descom)
+checkresiduals(Almacenes_Pronaca_carne)
+
+modelo_auto<- auto.arima(Almacenes_Pronaca_carne, seasonal = TRUE)
+autoplot(modelo_auto)
+checkresiduals(modelo_auto)
+
+
+
+
+modelo_estacional <- Arima(Almacenes_Pronaca_carne, 
+                            order = c(2, 1, 0),       # p = 2, d = 1, q = 0
+                            seasonal = c(0, 0, 1)) 
+autoplot(modelo_estacional)
+
+checkresiduals(modelo_estacional)
+
+autoplot(modelo_manual)
+
+
+
+acf(diff(Almacenes_Pronaca_carne, lag = 12))  # Suponiendo s = 12
+pacf(diff(Almacenes_Pronaca_carne, lag = 12))
+```
+
+
+```{r echo=FALSE}
+save(La_Favorita_carne , file = "La_Favorita_carne.Rdata")
+save(Mi_comisariato_carne , file = "Mi_comisariato_carne.Rdata")
+save(Almacenes_Pronaca_carne , file = "Almacenes_Pronaca_carne.Rdata")
+Box.test(La_Favorita_carne, lag = 20, type = "Ljung-Box")
+Box.test(Mi_comisariato_carne, lag = 20, type = "Ljung-Box")
+Box.test(Almacenes_Pronaca_carne, lag = 20, type = "Ljung-Box")
+par(mfrow = c(2, 2))
+acf(La_Favorita_carne)
+acf(Mi_comisariato_carne)
+acf(Almacenes_Pronaca_carne)
+
+```
+
+
+## Ajustando modelos
+
+### ARIMA
+
+```{r echo=FALSE, fig.height=6}
+ajusLFC<-auto.arima(La_Favorita_carne) |> fitted()
+a<-auto.arima(La_Favorita_carne)
+Acf(a$residuals)
+shapiro.test(a$residuals)
+accuracy(a)
+Ajustados<-ajusLFC
+plot_arimaLFC_carne <- forecast(auto.arima(La_Favorita_carne),  h = 5) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+La_Favorita_carne_prediccion<-forecast(auto.arima(La_Favorita_carne),  h = 5)
+save(La_Favorita_carne_prediccion , file = "La_Favorita_carne_prediccion.Rdata")
+
+ajusMC<-auto.arima(Mi_comisariato_carne) |> fitted()
+a<-auto.arima(Mi_comisariato_carne)
+Acf(a$residuals)
+shapiro.test(a$residuals)
+accuracy(a)
+Ajustados<-ajusMC
+plot_arimaMC_carne<- forecast(auto.arima(Mi_comisariato_carne),  h = 5) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+Mi_comisariato_carne_prediccion<-forecast(auto.arima(Mi_comisariato_carne),  h = 5)
+save(Mi_comisariato_carne_prediccion, file = "Mi_comisariato_carne_prediccion.Rdata")
+ajusAP<-auto.arima(Almacenes_Pronaca_carne) |> fitted()
+a<-auto.arima(Almacenes_Pronaca_carne)
+Acf(a$residuals)
+shapiro.test(a$residuals)
+accuracy(a)
+
+Ajustados<-ajusAP
+plot_arimaAP_carne<- forecast(auto.arima(Almacenes_Pronaca_carne),  h = 5) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+Almacenes_Pronaca_carne_prediccion<-forecast(auto.arima(Almacenes_Pronaca_carne),  h = 5)
+
+save(La_Favorita_carne_prediccion , file = "La_Favorita_carne_prediccion.Rdata")
+save(Almacenes_Pronaca_carne_prediccion, file = "Almacenes_Pronaca_carne_prediccion.Rdata")
+save(Mi_comisariato_carne_prediccion, file = "Mi_comisariato_carne_prediccion.Rdata")
+
+save(plot_arimaLFC_carne, file = "plot_arimaLFC_carne.Rdata")
+save(plot_arimaMC_carne, file = "plot_arimaMC_carne.Rdata")
+save(plot_arimaAP_carne, file = "plot_arimaAP_carne.Rdata")
+
+grid.arrange(plot_arimaLFC_carne, plot_arimaMC_carne, plot_arimaAP_carne, nrow = 2,ncol=2)
+
+```
+
+## Construccion de series temporales (SOPAS)
+
+### ETS
+
+```{r echo=FALSE}
+
+#hoja2
+meses <- c("Ene" = "01", "Feb" = "02", "Mar" = "03", "Abr" = "04", 
+           "May" = "05", "Jun" = "06", "Jul" = "07", "Ago" = "08", 
+           "Sep" = "09", "Oct" = "10", "Nov" = "11", "Dic" = "12")
+info_sopas <- info_sopas |> mutate(Tiempo = str_replace_all(Tiempo, meses)) |> 
+              mutate(Tiempo = paste0(Tiempo, "/01"),
+              Tiempo = as.Date(Tiempo)) |> mutate(Tiempo = ceiling_date(Tiempo, "month") - days(1)) |> 
+              as_tsibble(index = Tiempo) 
+
+info_sopas<-info_sopas  |> mutate(`La favorita`=as.numeric(`La favorita`),
+                                  `Mi comisariato`=as.numeric(`Mi comisariato`),
+                                  `Almacenes Pronaca`=as.numeric(`Almacenes Pronaca`))
+
+
+La_Favorita_sopas <- ts(info_sopas$`La favorita`[-33], start = c(year(min(info_sopas$Tiempo)), month(min(info_sopas$Tiempo))), frequency = 12)  # 
+Mi_comisariato_sopas<- ts(info_sopas$`Mi comisariato`[-33], start = c(year(min(info_sopas$Tiempo)), month(min(info_sopas$Tiempo))), frequency = 12)  # 
+Almacenes_Pronaca_sopas <- ts(info_sopas$`Almacenes Pronaca`[-33], start = c(year(min(info_sopas$Tiempo)), month(min(info_sopas$Tiempo))), frequency = 12)  
+
+autoplot(La_Favorita_sopas)
+autoplot(Mi_comisariato_sopas)
+autoplot(Almacenes_Pronaca_sopas)
+```
+
+```{r echo=FALSE}
+save(La_Favorita_sopas , file = "La_Favorita_sopas.Rdata")
+save(Mi_comisariato_sopas , file = "Mi_comisariato_sopas.Rdata")
+save(Almacenes_Pronaca_sopas , file = "Almacenes_Pronaca_sopas.Rdata")
+Box.test(La_Favorita_sopas, lag = 20, type = "Ljung-Box")
+Box.test(Mi_comisariato_sopas, lag = 20, type = "Ljung-Box")
+Box.test(Almacenes_Pronaca_sopas, lag = 20, type = "Ljung-Box")
+par(mfrow = c(2, 2))
+acf(La_Favorita_sopas)
+acf(Mi_comisariato_sopas)
+acf(Almacenes_Pronaca_sopas)
+```
+
+Se observa el mismo comportamiento que en la carne.
+
+```{r echo=FALSE, warning=FALSE}
+ajusLFC<-ets(La_Favorita_sopas) |> fitted()
+a<-ets(La_Favorita_sopas)
+Acf(a$residuals)
+shapiro.test(a$residuals)
+accuracy(a)
+Ajustados<-ajusLFC
+plot_etsLFC_sopas <- forecast(ets(La_Favorita_sopas),  h = 5) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+La_Favorita_sopas_prediccion<-forecast(ets(La_Favorita_sopas),  h = 5)
+
+ajusMC<-ets(Mi_comisariato_sopas) |> fitted()
+a<-ets(Mi_comisariato_sopas)
+Acf(a$residuals)
+shapiro.test(a$residuals)
+accuracy(a)
+Ajustados<-ajusMC
+plot_etsMC_sopas<- forecast(ets(Mi_comisariato_sopas),  h = 5) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+Mi_comisariato_sopas_prediccion<-forecast(ets(Mi_comisariato_sopas),  h = 5)
+
+ajusAP<-ets(Almacenes_Pronaca_sopas) |> fitted()
+a<-ets(Almacenes_Pronaca_sopas)
+Acf(a$residuals)
+shapiro.test(a$residuals)
+accuracy(a)
+
+Ajustados<-ajusAP
+plot_etsAP_sopas<- forecast(ets(Almacenes_Pronaca_sopas),  h = 5) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+Almacenes_Pronaca_sopas_prediccion<-forecast(ets(Almacenes_Pronaca_sopas),  h = 5)
+
+save(La_Favorita_sopas_prediccion , file = "La_Favorita_sopas_prediccion.Rdata")
+save(Almacenes_Pronaca_sopas_prediccion, file = "Almacenes_Pronaca_sopas_prediccion.Rdata")
+save(Mi_comisariato_sopas_prediccion, file = "Mi_comisariato_sopas_prediccion.Rdata")
+
+save(plot_etsLFC_sopas, file = "plot_etsLFC_sopas.Rdata")
+save(plot_etsMC_sopas, file = "plot_etsMC_sopas.Rdata")
+save(plot_etsAP_sopas, file = "plot_etsAP_sopas.Rdata")
+
+grid.arrange(plot_etsLFC_sopas , plot_etsMC_sopas, plot_etsAP_sopas ,nrow = 2,ncol=2)
+```
+
+## Construccion de series temporales (POLLOS)
+
+### Redes Neuronales
+
+
+```{r echo=FALSE}
+#hoja3
+meses <- c("Ene" = "01", "Feb" = "02", "Mar" = "03", "Abr" = "04", 
+           "May" = "05", "Jun" = "06", "Jul" = "07", "Ago" = "08", 
+           "Sep" = "09", "Oct" = "10", "Nov" = "11", "Dic" = "12")
+info_pollos <- info_pollos |> mutate(Tiempo = str_replace_all(Tiempo, meses)) |> 
+              mutate(Tiempo = paste0(Tiempo, "/01"),
+              Tiempo = as.Date(Tiempo)) |> mutate(Tiempo = ceiling_date(Tiempo, "month") - days(1)) |> 
+              as_tsibble(index = Tiempo) 
+
+info_pollos<-info_pollos  |> mutate(`La favorita`=as.numeric(`La favorita`),
+                                  `Mi comisariato`=as.numeric(`Mi comisariato`),
+                                  `Almacenes Pronaca`=as.numeric(`Almacenes Pronaca`))
+
+
+La_Favorita_pollos <- ts(info_pollos$`La favorita`[-33], start = c(year(min(info_pollos$Tiempo)), month(min(info_pollos$Tiempo))), frequency = 12)  # 
+Mi_comisariato_pollos<- ts(info_pollos$`Mi comisariato`[-33], start = c(year(min(info_pollos$Tiempo)), month(min(info_pollos$Tiempo))), frequency = 12)  # 
+Almacenes_Pronaca_pollos <- ts(info_pollos$`Almacenes Pronaca`[-33], start = c(year(min(info_pollos$Tiempo)), month(min(info_pollos$Tiempo))), frequency = 12)  
+
+autoplot(La_Favorita_pollos)
+autoplot(Mi_comisariato_pollos)
+autoplot(Almacenes_Pronaca_pollos)
+
+
+
+```
+
+```{r echo=FALSE}
+save(La_Favorita_pollos , file = "La_Favorita_pollos.Rdata")
+save(Mi_comisariato_pollos , file = "Mi_comisariato_pollos.Rdata")
+save(Almacenes_Pronaca_pollos , file = "Almacenes_Pronaca_pollos.Rdata")
+
+Box.test(La_Favorita_pollos, lag = 20, type = "Ljung-Box")
+Box.test(Mi_comisariato_pollos, lag = 20, type = "Ljung-Box")
+Box.test(Almacenes_Pronaca_pollos, lag = 20, type = "Ljung-Box")
+par(mfrow = c(2, 2))
+acf(La_Favorita_pollos)
+acf(Mi_comisariato_pollos)
+acf(Almacenes_Pronaca_pollos)
+```
+
+```{r echo=FALSE, fig.height=5, fig.width=9, warning=FALSE}
+ajus7<-nnetar(La_Favorita_pollos) |> fitted()
+Ajustados<-ajus7
+plot_NNETAR <- forecast(nnetar(La_Favorita_pollos,size = 2, repeats = 200),  h =5,PI=TRUE,npaths=5 ) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+
+f<-nnetar(La_Favorita_pollos)
+Acf(f$residuals)
+shapiro.test(f$residuals)
+accuracy(f)
+La_Favorita_pollos_prediccion<-forecast(nnetar(La_Favorita_pollos,size = 2, repeats = 200),  h = 5,PI=TRUE,npaths=5 )
+
+ajus8<- nnetar(Mi_comisariato_pollos)|> fitted()
+Ajustados<-ajus8
+plot_NNETAR_box = forecast(nnetar(Mi_comisariato_pollos,size = 2, repeats = 200), h = 5,PI=TRUE,npaths=5) %>%
+  autoplot()+autolayer(Ajustados)  +theme_gray()
+g<-nnetar(Mi_comisariato_pollos, biasadj = T)
+Acf(g$residuals)
+shapiro.test(g$residuals)
+accuracy(g)
+Mi_comisariato_pollos_prediccion<-forecast(nnetar(Mi_comisariato_pollos,size = 2, repeats = 200),  h = 5,PI=TRUE,npaths=5 )
+
+
+
+
+ajus9<-nnetar(Almacenes_Pronaca_pollos) |> fitted()
+Ajustados<-ajus9
+plot_NNETAR_3 <- forecast(nnetar(Almacenes_Pronaca_pollos,size = 1, repeats = 200),  h =5,PI=TRUE,npaths=5 ) %>%
+  autoplot() +autolayer(Ajustados)+theme_gray()
+
+f<-nnetar(Almacenes_Pronaca_pollos)
+Acf(f$residuals)
+shapiro.test(f$residuals)
+accuracy(f)
+Almacenes_Pronaca_pollos_prediccion<-forecast(nnetar(Almacenes_Pronaca_pollos,size =5, repeats = 200),  h = 5,PI=TRUE,npaths=5 )
+
+save(La_Favorita_pollos_prediccion , file = "La_Favorita_pollos_prediccion.Rdata")
+save(Almacenes_Pronaca_pollos_prediccion, file = "Almacenes_Pronaca_pollos_prediccion.Rdata")
+save(Mi_comisariato_pollos_prediccion, file = "Mi_comisariato_pollos_prediccion.Rdata")
+
+save(plot_NNETAR, file = "plot_NNETARLFC_sopas.Rdata")
+save(plot_NNETAR_box, file = "plot_NNETARMC_sopas.Rdata")
+save(plot_NNETAR_3, file = "plot_NNETARAP_sopas.Rdata")
+
+grid.arrange(plot_NNETAR , plot_NNETAR_box, plot_NNETAR_3  ,nrow = 2,ncol=2)
+```
+
+## Modelo jerarquico
+
+```{r echo=FALSE, warning=FALSE}
+
+ventas_combinadas <- bind_cols(info_carne[1:32, -4], info_sopas[1:32, -4], info_pollos[1:32,])
+
+# Define nombres de las columnas
+colnames(ventas_combinadas) <- c("Carnes_LaFavorita", "Carnes_MiComisariato", "Carnes_AlmacenesPronaca",
+                                 "Sopas_LaFavorita", "Sopas_MiComisariato", "Sopas_AlmacenesPronaca",
+                                 "Pollos_LaFavorita", "Pollos_MiComisariato", "Pollos_AlmacenesPronaca","Tiempo")
+colnames(ventas_combinadas) <- str_pad(colnames(ventas_combinadas), width = max(nchar(colnames(ventas_combinadas))), side = "right", pad = "_")
+
+ventas_ts <- ts(ventas_combinadas[, -ncol(ventas_combinadas)],  
+               start = c(year(min(info_pollos$Tiempo)), month(min(info_pollos$Tiempo))), frequency = 12)  
+
+
+
+
+
+```
+
+```{r echo=FALSE, fig.height=7, fig.width=5, warning=FALSE}
+ventas_hts <- hts(ventas_ts, characters = c(6, 11))
+# Ajustar el modelo jerárquico y hacer predicciones
+fit <- forecast(ventas_hts, h = 6)  # Pronostica los próximos 4 meses
+par(cex.axis = 0.7, cex.lab = 0.8, cex.main = 1)
+plot(fit)
+
+```
+
+```{r}
+fit <- forecast(ventas_hts, h = 5, level = c(80, 95))
+predicciones_nivel_0 <- aggts(fit, levels = 0)  # Nivel 0
+save(predicciones_nivel_0, file = "predicciones_nivel_0.Rdata")
+predicciones_nivel_1 <- aggts(fit, levels = 1)  # Nivel 1
+save(predicciones_nivel_1, file = "predicciones_nivel_1.Rdata")
+```
+
+
+```{r echo=FALSE, fig.width=10}
+# Ajustar el modelo jerárquico y hacer predicciones con intervalo de confianza al 95%
+fit <- forecast(ventas_hts, h = 6, level = 95)
+
+# Extraer predicciones para nivel 0 con intervalo de confianza al 95%
+predicciones_nivel_0 <- aggts(fit, levels = 0)  # Nivel 0: pronóstico
+
+# Extraer los límites inferior y superior del nivel 0 (confianza al 95%)
+limite_inferior_0 <- aggts(fit$lower[, "95%"], levels = 0)  # Límite inferior al 95% nivel 0
+limite_superior_0 <- aggts(fit$upper[, "95%"], levels = 0)  # Límite superior al 95% nivel 0
+
+# Combinar en un data.frame para el nivel 0
+df_nivel_0 <- data.frame(
+  Prediccion = predicciones_nivel_0,
+  Limite_Inferior_95 = limite_inferior_0,
+  Limite_Superior_95 = limite_superior_0
+)
+
+# Extraer predicciones para nivel 1 con intervalo de confianza al 95%
+predicciones_nivel_1 <- aggts(fit, levels = 1)  # Nivel 1: pronóstico
+
+# Extraer los límites inferior y superior del nivel 1 (confianza al 95%)
+limite_inferior_1 <- aggts(fit$lower[, "95%"], levels = 1)  # Límite inferior al 95% nivel 1
+limite_superior_1 <- aggts(fit$upper[, "95%"], levels = 1)  # Límite superior al 95% nivel 1
+
+# Combinar en un data.frame para el nivel 1
+df_nivel_1 <- data.frame(
+  Prediccion = predicciones_nivel_1,
+  Limite_Inferior_95 = limite_inferior_1,
+  Limite_Superior_95 = limite_superior_1
+)
+
+# Imprimir los data.frames para ver las predicciones y los intervalos de confianza
+print("Predicciones con intervalos de confianza al 95% - Nivel 0:")
+print(df_nivel_0)
+
+print("Predicciones con intervalos de confianza al 95% - Nivel 1:")
+print(df_nivel_1)
+```
+
+
+
+
